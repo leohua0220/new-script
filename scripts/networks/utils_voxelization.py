@@ -183,6 +183,7 @@ class PC2Tensor(nn.Module):
     def forward(self, point_cloud_features):
         try:
             encoded_features, voxel_coords, _ = self.voxel_encoder(point_cloud_features)
+            # voxel_coords is index point
             spconv_tensor = TensorHelper.create_spconv_tensor(encoded_features, voxel_coords, point_cloud_features.shape[0], self.spatial_shape)
         except Exception as e:
             raise RuntimeError(f"\nFailed in PC2Tensor forward pass: {e}")
