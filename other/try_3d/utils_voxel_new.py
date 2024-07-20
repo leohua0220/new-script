@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import spconv.pytorch as spconv
 from spconv.pytorch.utils import PointToVoxel
-
+import open3d as o3d
+import numpy as np
 """
 ====================================
 点云特征到稀疏卷积张量的转换流程
@@ -54,7 +55,7 @@ class Voxelizer:
         """
         self.device = device
         self.point_to_voxel_converter = PointToVoxel(
-            vsize_xyz=[1, 1, 1],  # [0.05, 0.05, 0.05]还是内存不够
+            vsize_xyz=[0.5, 0.5, 0.5],  # [0.05, 0.05, 0.05]还是内存不够
             coors_range_xyz=[-1, -1, -1, 2, 3, 3],
             num_point_features=1,
             max_num_voxels=2000,
@@ -194,7 +195,7 @@ class PC2Tensor(nn.Module):
 #########################  网络相关（实验性）   ######################
 # SimpleSpConvNet 类， 注意不要混入真正的网络
 class SimpleSpConvNet(nn.Module):
-    def __init__(self, input_channels=4, output_channels=100):
+    def __init__(self, input_channels=1, output_channels=100):
         super(SimpleSpConvNet, self).__init__()
         self.encoder = spconv.SparseSequential(
             spconv.SparseConv3d(input_channels, 64, 3, 2, indice_key="conv1"),
@@ -203,9 +204,15 @@ class SimpleSpConvNet(nn.Module):
             spconv.SubMConv3d(64, 64, 3, indice_key="subm1"),
             nn.BatchNorm1d(64),
             nn.ReLU(),
+            spconv.SubMConv3d(64, 64, 3, indice_key="subm1"),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
         )
         self.decoder = spconv.SparseSequential(
-            spconv.SparseInverseConv3d(64, output_channels, 3, indice_key="conv1"),
+            spconv.SparseInverseConv3d(64, 128, 3, indice_key="conv1"),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Linear(128, output_channels)
         )
 
     def forward(self, x):
@@ -213,7 +220,22 @@ class SimpleSpConvNet(nn.Module):
         x = self.decoder(x)
         return x
 
+def visualize_labels_as_voxels(indices, labels, voxel_size=0.05):
+    max_label = labels.max().item()
+    colors = np.zeros((labels.shape[0], 3))
+    for i in range(labels.shape[0]):
+        colors[i] = [labels[i] / max_label, 0, 1 - labels[i] / max_label]
 
+    points = indices[:, 1:4] * voxel_size  # Skip batch index and apply voxel size
+
+    # Create Open3D point cloud
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+    pcd.colors = o3d.utility.Vector3dVector(colors)
+
+    # Create voxel grid
+    voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size)
+    return voxel_grid
 # Example Usage
 # main 函数
 def main():

@@ -9,7 +9,9 @@ from other.try_3d.SCPTHDataset import SCPTHDataset
 from other.try_3d.transform3d import ToTensor
 from scripts.utils.load_save_models import save_checkpoint, get_latest_checkpoint, inference, load_checkpoint
 # from scripts.utils.visualizer import visualize_predictions, visualize_dataloader
-
+import open3d as o3d
+from other.try_3d.utils_voxel_new import visualize_labels_as_voxels
+CUDA_LAUNCH_BLOCKING=1
 # Set CUDA_LAUNCH_BLOCKING for accurate stack trace
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
@@ -49,8 +51,8 @@ print('Val dataset length:', val_len)
 # sample = train_dataset[idx]
 # print(f'Random sample shape: {idx}', sample['depth'].shape)
 batch_size = 1
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=8)
 
 
 # check if the dataloader's shapes are correct, including the batch size
@@ -125,42 +127,46 @@ for epoch in range(start_epoch, num_epochs):
         labels = pc['labels'].to(device)
         # Add an extra dimension to labels to make its shape [1, 1203566, 1]
         labels = labels.unsqueeze(-1)
-        #
+        invalid_mask = (labels < 0)
+        labels[invalid_mask] = IGNORE_INDEX
         # # Concatenate along the last dimension
         inputs = torch.cat((coords, labels), dim=-1)
 
-        spatial_shape = [10, 20, 20]
+        spatial_shape = [20, 40, 40]
         pc2tensor = PC2Tensor(device, spatial_shape)
         spconv_tensor = pc2tensor(inputs)
-        label_spconv_tensor = spconv.SparseConvTensor(labels.squeeze(0), spconv_tensor.indices, spatial_shape, batch_size)
 
+        # label_spconv_tensor = spconv_tensor.features
+        labels_sparse_tensor = spconv.SparseConvTensor(
+            spconv_tensor.features, spconv_tensor.indices, spconv_tensor.spatial_shape, spconv_tensor.batch_size
+        )
         optimizer.zero_grad()
         output = model3d(spconv_tensor)
         output_dense = output.dense()
 
         # Flatten the tensors for loss computation
         output_flat = output_dense.view(-1, output_dense.shape[1])
-        labels_flat = label_spconv_tensor.dense().view(-1).long()
-
+        labels_flat = labels_sparse_tensor.dense().view(-1).long()
+        # labels_flat = labels_flat.unsqueeze(-1)
         loss = criterion(output_flat, labels_flat)
         loss.backward()
         optimizer.step()
 
-        print(f"Epoch [{epoch + 1}/10], Loss: {loss.item()}")
+        print(f"Epoch [{epoch + 1}/500], Loss: {loss.item()}")
 
 
-        print('Output shape:', output.dense().shape)
+    print('Output shape:', output.dense().shape)
 
-        # Visualize label voxels
-        voxel_grid = visualize_labels_as_voxels(input.indices.cpu().numpy(), labels.cpu().numpy())
-        o3d.visualization.draw_geometries([voxel_grid])
+    # Visualize label voxels
+    # voxel_grid = visualize_labels_as_voxels(inputs.indices.cpu().numpy(), labels.cpu().numpy())
+    # o3d.visualization.draw_geometries([voxel_grid])
 
     # Save a checkpoint
-    if (epoch + 1) % save_interval == 0 and epoch_val_loss < best_val_loss:
-        best_val_loss = epoch_val_loss
-        save_checkpoint(epoch + 1, model3d, optimizer, epoch_loss, checkpoint_dir,
-                        filename=f'checkpoint_epoch_{epoch + 1}.pth.tar')
+    # if (epoch + 1) % save_interval == 0 and epoch_val_loss < best_val_loss:
+    #     best_val_loss = epoch_val_loss
+    #     save_checkpoint(epoch + 1, model3d, optimizer, epoch_loss, checkpoint_dir,
+    #                     filename=f'checkpoint_epoch_{epoch + 1}.pth.tar')
 
-print("Training complete")
-writer.close()
+# print("Training complete")
+# writer.close()
 
