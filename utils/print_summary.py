@@ -10,7 +10,7 @@ def summarize_pth_file(file_path):
 
     # Extract and summarize properties
     summary.append(f"Summary of .pth file: {file_path}\n")
-    summary.append("Keys and corresponding data shapes and types:\n")
+    summary.append("Keys and corresponding 2d_data shapes and types:\n")
     
     for key, value in data.items():
         if isinstance(value, list) and len(value) > 0:
@@ -50,5 +50,5 @@ def summarize_pth_file(file_path):
     print(f"Summary saved to {summary_file_path}")
 
 # Example usage
-file_path = "dataset/data/a24f64f7fb.pth"
+file_path = "dataset/2d_data/a24f64f7fb.pth"
 summarize_pth_file(file_path)

@@ -4,17 +4,28 @@ import spconv.pytorch as spconv
 from spconv.pytorch.utils import PointToVoxel
 
 
-
 #########################   数据相关    #####################
 # 数据加载函数（网络中不需要）
 def load_pth(file_path):
     return torch.load(file_path)
 
 
+def preprocess_data(data):
+    # Extract coordinates, colors, and labels
+    coords = data['vtx_coords']
+    # colors = data['sampled_colors']
+    labels = data['vtx_labels']
+    scene_id = data['scene_id']
 
+    # Convert to torch tensors
+    # coords = torch.tensor(coords, dtype=torch.float32)
+    # # colors = torch.tensor(colors, dtype=torch.float32)
+    # labels = torch.tensor(labels, dtype=torch.int8)
+    # # scene_id = torch.tensor(scene_id)
 
+    return coords, labels, scene_id
 #########################  Voxel相关   ######################
- 
+
 class Voxelizer:
     def __init__(self, device):
         """
@@ -26,13 +37,13 @@ class Voxelizer:
         self.device = device
         self.point_to_voxel_converter = PointToVoxel(
             vsize_xyz=[0.05, 0.05, 0.05],
-            coors_range_xyz=[-1, -2, -2, 1, 2, 2], 
+            coors_range_xyz=[-1, -2, -2, 1, 2, 2],
             num_point_features=101,
-            max_num_voxels=2000, 
+            max_num_voxels=2000,
             max_num_points_per_voxel=25,
             device=device
         )
-        
+
     def generate_voxels(self, pc):
         """
         从点云数据生成体素。
@@ -47,8 +58,8 @@ class Voxelizer:
         """
         voxels, coords, num_points_per_voxel = self.point_to_voxel_converter(pc, empty_mean=True)
         return voxels, coords, num_points_per_voxel
-    
- 
+
+
 class VoxelEncoder(nn.Module):
     def __init__(self, device):
         """
@@ -83,13 +94,13 @@ class VoxelEncoder(nn.Module):
             pc = point_cloud_features[i].to(self.device)
             voxels, coords, num_points_per_voxel = self.voxelizer.generate_voxels(pc)
             encoded_features = self.encode_voxels(voxels, num_points_per_voxel)
-            
+
             all_voxels.append(encoded_features)
             all_coords.append(coords)
             all_num_points.append(num_points_per_voxel)
-        
+
         return all_voxels, all_coords, all_num_points
-    
+
     def encode_voxels(self, voxels, num_points_per_voxel):
         """
         通过平均每个体素中的点来编码体素特征。
@@ -107,8 +118,6 @@ class VoxelEncoder(nn.Module):
         return points_mean
 
 
-
-
 #########################  Tensor相关   ######################
 class TensorHelper:
     @staticmethod
@@ -123,15 +132,16 @@ class TensorHelper:
             coords = torch.cat((batch_indices, coords), dim=1)
             all_features.append(features)
             all_coords.append(coords)
-        
+
         all_features = torch.cat(all_features, dim=0)
         all_coords = torch.cat(all_coords, dim=0)
-        
+
         spconv_tensor = spconv.SparseConvTensor(
             all_features, all_coords, spatial_shape, batch_size
         )
         return spconv_tensor
-    
+
+
 # PC2Tensor 类：端到端封装，输入点云特征，输出Spconv Tensor
 class PC2Tensor(nn.Module):
     def __init__(self, device, spatial_shape):
@@ -142,12 +152,9 @@ class PC2Tensor(nn.Module):
 
     def forward(self, point_cloud_features):
         encoded_features, voxel_coords, _ = self.voxel_encoder(point_cloud_features)
-        spconv_tensor = TensorHelper.create_spconv_tensor(encoded_features, voxel_coords, point_cloud_features.shape[0], self.spatial_shape)
+        spconv_tensor = TensorHelper.create_spconv_tensor(encoded_features, voxel_coords, point_cloud_features.shape[0],
+                                                          self.spatial_shape)
         return spconv_tensor
-
-
-
-
 
 
 #########################  网络相关（实验性）   ######################
@@ -164,36 +171,38 @@ class SimpleSpConvNet(nn.Module):
             nn.ReLU(),
             spconv.SparseConv3d(64, 32, 3, padding=1),
         )
-        
+
     def forward(self, x):
         x = self.conv_input(x)
         return x
-
-
-
-
 
 
 # Example Usage
 # main 函数
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    pth_file = "/home/hua/Desktop/ml3d/new-script/point_cloud_features_epoch_51_batch_0.pth"
-    point_cloud_features = load_pth(pth_file)
-    
-    print('Tensor shape', point_cloud_features.shape)
-    print('Tensor type', point_cloud_features.dtype)
-    
+    pth_file = "/home/hua/Desktop/ml3d/new-script/dataset/3d_data/8b5caf3398.pth"
+    data = load_pth(pth_file)
+    coords, labels, scene_id = preprocess_data(data)
+
+    print('Tensor shape', coords.shape)
+    print('Tensor type', coords.dtype)
+    # print('Tensor shape', colors.shape)
+    # print('Tensor type', colors.dtype)
+    print('Tensor shape', labels.shape)
+    print('Tensor type', labels.dtype)
+
     spatial_shape = [40, 80, 80]
     pc2tensor = PC2Tensor(device, spatial_shape)
     spconv_tensor = pc2tensor(point_cloud_features)
-    
+
     input_channels = spconv_tensor.features.shape[1]
     model = SimpleSpConvNet(input_channels, spatial_shape)
     model.to(device)
     output = model(spconv_tensor)
-    
+
     print('Output shape:', output.features.shape)
+
 
 if __name__ == "__main__":
     main()

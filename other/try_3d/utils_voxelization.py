@@ -49,7 +49,7 @@ def BatchPC2Voxel(pc, save_path):
     Make sure you have whole area covered && enough max_num_voxels
     '''
 
-    # load point cloud data
+    # load point cloud 2d_data
     # pc = load_point_cloud(pc_path))
 
     min_xyz, max_xyz, range_xyz = get_max_coordinate_range(pc)
@@ -84,7 +84,7 @@ def BatchPC2Voxel(pc, save_path):
         print("number of voxels with", element, "points:", num[i])
         i += 1
 
-    # save point cloud data
+    # save point cloud 2d_data
     save_as_ply(coords, save_path)
 
     return voxels, coords, num_points_per_voxel
